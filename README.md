@@ -1,4 +1,4 @@
 ME134: Robotics 
 Tufts University Spring 2025
 
-XRP Robot developed my WPI
+This class is focused on code development using an XRP Robot developed by WPI.
