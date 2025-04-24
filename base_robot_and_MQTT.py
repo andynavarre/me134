@@ -3,9 +3,11 @@ import random
 from MQTT.mqttconnect import connect_mqtt
 from XRPLib.differential_drive import DifferentialDrive
 from XRPLib.board import Board
+from .rangefinder import Rangefinder
 
 drivetrain = DifferentialDrive.get_default_differential_drive()
 board = Board.get_default_board()
+rangefinder = Rangefinder.get_default_rangefinder()
 
 # Constants and State
 ROLES = ["BASE", "MIDDLE", "TOP"]
@@ -28,10 +30,13 @@ role = None
 start_time = time.time()
 role_assignment_delay = 3.0  # seconds
 
-# Base-specific flags and setup
+# Communication setup between robots
 top_ready = False
 top_button_pressed = False
 base_ready = False
+
+#Sensor Readings
+distance_buffer = []
 
 # Base robot behavior states
 BASE_STATE_WAIT_FOR_BUTTON = "BASE_WAIT_FOR_BUTTON"
@@ -39,6 +44,7 @@ BASE_STATE_RANDOM_WALK = "BASE_RANDOM_WALK"
 BASE_STATE_ALIGN_APRILTAG = "BASE_ALIGN_APRILTAG"
 BASE_STATE_READY_FOR_UNSTACK = "BASE_READY_FOR_UNSTACK"
 BASE_STATE_WALL_FOLLOWING = "BASE_WALL_FOLLOWING"
+BASE_STATE_ALIGN_APRILTAG2 = "BASE_ALIGN_APRILTAG2"
 BASE_STATE_WAIT_FOR_PICKUP = "BASE_WAIT_FOR_PICKUP"
 BASE_STATE_REJOIN_STACK = "BASE_REJOIN_STACK"
 BASE_STATE_FINAL_MOVES = "BASE_FINAL_MOVES"
@@ -46,9 +52,13 @@ BASE_STATE_DONE = "BASE_DONE"
 
 base_state = BASE_STATE_WAIT_FOR_BUTTON
 
-#TO DO: Define the following states:
-# Middle-specific flags and setup
 # Middle robot behavior states
+MIDDLE_STATE_IDLE = "MIDDLE_IDLE"
+MIDDLE_STATE_PREPARE_FOR_RESTACK = "MIDDLE_PREPARE_FOR_RESTACK"
+
+middle_state = MIDDLE_STATE_IDLE
+
+
 # Top-specific flags and setup
 # Top robot behavior states
 
@@ -96,6 +106,13 @@ def handle_mqtt_message(topic, msg):
 def detect_april_tag():
     return random.random() < 0.1 
 
+def get_filtered_distance():
+    new_distance = Rangefinder.distance()
+    distance_buffer.append(new_value)
+    if len(distance_buffer) > 5:
+        distance_buffer.pop(0)
+    return sorted(distance_buffer[len(distance_buffer)//2]
+
 # Behavior for BASE role
 def handle_base_behavior():
     global base_state, base_ready, top_ready, top_button_pressed
@@ -108,6 +125,7 @@ def handle_base_behavior():
             base_state = BASE_STATE_RANDOM_WALK
 
     elif base_state == BASE_STATE_RANDOM_WALK:
+        top_button_pressed = False
         print("[BASE] Random walking toward table...")
 
         base_speed = random.randint(40, 80)
@@ -129,7 +147,6 @@ def handle_base_behavior():
         # TODO: Implement AprilTag centering logic
         time.sleep(2)
         base_state = BASE_STATE_READY_FOR_UNSTACK
-        base_ready = True
         client.publish(MQTT_COMMAND_TOPIC, "BASE_READY")
 
     elif base_state == BASE_STATE_READY_FOR_UNSTACK:
@@ -138,13 +155,61 @@ def handle_base_behavior():
             base_state = BASE_STATE_WALL_FOLLOWING
 
     elif base_state == BASE_STATE_WALL_FOLLOWING:
-        print("[BASE] Wall following...")
-        # TODO: Implement wall-following behavior
-        time.sleep(2)
-        base_state = BASE_STATE_WAIT_FOR_PICKUP
-        base_ready = True
-        client.publish(MQTT_COMMAND_TOPIC, "BASE_WAITING_AT_TAG")
+        print("[BASE] Backing up from the wall...")
+        drivetrain.set_speed(-40, -40)
+        time.sleep(1.0)
+        drivetrain.set_speed(0, 0)
 
+        print("[BASE] Turning 90 degrees to the right...")
+        drivetrain.turn(90)
+        time.sleep(1)
+
+        print("[BASE] Starting wall follow...")
+
+        has_turned_corner = False
+        Kp = 1.2
+        target_distance = 10  # cm
+        distance_buffer = []
+
+        while True:
+            distance = get_filtered_distance()
+            print(f"[BASE] Left distance: {distance} cm")
+
+            # AprilTag check (stop condition)
+            if detect_april_tag():
+                print("[BASE] AprilTag detected – stopping.")
+                drivetrain.set_speed(0, 0)
+                base_state = BASE_STATE_APRILTAG2
+                break
+
+            # Detect left wall loss to find corner
+            if not has_turned_corner and distance > 50:
+                print("[BASE] Left wall lost – 90° corner detected.")
+                drivetrain.set_speed(0, 0)
+                time.sleep(0.5)
+                drivetrain.turn(-90)
+                time.sleep(1)
+                has_turned_corner = True
+                continue
+
+            # Wall following logic (P-control)
+            error = target_distance - distance
+            correction = Kp * error
+
+            base_speed = 60
+            left_speed = max(min(base_speed - correction, 100), 20)
+            right_speed = max(min(base_speed + correction, 100), 20)
+
+            drivetrain.set_speed(left_speed, right_speed)
+            time.sleep(0.1)
+
+    elif base_state == BASE_STATE_ALIGN_APRILTAG2:
+        print("[BASE] Aligning with AprilTag...")
+        # TODO: Implement AprilTag centering logic
+        time.sleep(2)
+        base_state = BASE_STATE_WAIT_FOR_PICKUP:
+        client.publish(MQTT_COMMAND_TOPIC, "BASE_WAITING_AT_TAG")
+        
     elif base_state == BASE_STATE_WAIT_FOR_PICKUP:
         print("[BASE] Waiting for top to be ready for pickup...")
         if top_ready:
@@ -175,7 +240,19 @@ def handle_base_behavior():
 
 # Behavior Placeholders for other roles
 def handle_middle_behavior():
-    print("MIDDLE behavior running...")
+    global middle_state
+
+    if middle_state == MIDDLE_STATE_IDLE:
+        print("[MIDDLE] Waiting... (idle)")
+        if base_ready and top_ready:
+            middle_state = MIDDLE_STATE_PREPARE_FOR_RESTACK
+
+    elif middle_state == MIDDLE_STATE_PREPARE_FOR_RESTACK:
+        print("[MIDDLE] Stack ready. Preparing for re-stack or shutdown.")
+        # TODO: Figure out if the middle robot would do anything
+        time.sleep(2)
+        middle_state = MIDDLE_STATE_IDLE
+
 
 def handle_top_behavior():
     print("TOP behavior running...")
