@@ -28,7 +28,7 @@ role = None
 start_time = time.time()
 role_assignment_delay = 3.0  # seconds
 
-# Role-specific flags and setup
+# Base-specific flags and setup
 top_ready = False
 top_button_pressed = False
 base_ready = False
@@ -46,6 +46,13 @@ BASE_STATE_DONE = "BASE_DONE"
 
 base_state = BASE_STATE_WAIT_FOR_BUTTON
 
+#TO DO: Define the following states:
+# Middle-specific flags and setup
+# Middle robot behavior states
+# Top-specific flags and setup
+# Top robot behavior states
+
+
 # Check if this robot is the assigner
 def is_role_assigner():
     all_ids = list(known_ids.union({robot_id}))
@@ -55,14 +62,17 @@ def is_role_assigner():
 def handle_mqtt_message(topic, msg):
     global role, top_ready, top_button_pressed
 
+    # Decoding the messages and topics Ex: b\topic
     topic = topic.decode("utf-8") if isinstance(topic, bytes) else topic
     msg = msg.decode("utf-8") if isinstance(msg, bytes) else msg
     print("MQTT received | Topic:", topic, "Msg:", msg)
 
+    #New Robot detected: add to personal list
     if topic == MQTT_BROADCAST_TOPIC and msg.startswith("NEW_ROBOT:"):
         incoming_id = msg.split(":")[1]
         known_ids.add(incoming_id)
 
+    #If another robot is assigning roles, read the assignment
     elif topic == MQTT_ROLE_TOPIC:
         parts = msg.split(":")
         if len(parts) == 2:
@@ -75,6 +85,7 @@ def handle_mqtt_message(topic, msg):
                 elif role != assigned_role:
                     print("Role conflict: already", role, "ignoring", assigned_role)
 
+    # Check status of other robots while doing the circuit
     elif topic == MQTT_COMMAND_TOPIC:
         if msg == "TOP_BUTTON_PRESSED":
             top_button_pressed = True
@@ -83,7 +94,7 @@ def handle_mqtt_message(topic, msg):
 
 # Placeholder: Simulated AprilTag detection
 def detect_april_tag():
-    return random.random() < 0.1  # 10% chance to simulate detection
+    return random.random() < 0.1 
 
 # Behavior for BASE role
 def handle_base_behavior():
@@ -141,7 +152,7 @@ def handle_base_behavior():
 
     elif base_state == BASE_STATE_REJOIN_STACK:
         print("[BASE] Rejoining stack...")
-        # TODO: Implement rejoining behavior or the check to know if its actually stacked
+        # TODO: Implement check to know if it's actually stacked
         time.sleep(2)
         base_state = BASE_STATE_FINAL_MOVES
 
@@ -188,7 +199,7 @@ while True:
         client.check_msg()
     except Exception as e:
         print("MQTT check failed:", e)
-
+    # If robot has just been initialized, communicate "NEW ROBOT" message
     if state == STATE_INIT:
         print("Broadcasting NEW_ROBOT message...")
         for _ in range(3):
@@ -198,6 +209,7 @@ while True:
         start_time = time.time()
         state = STATE_WAIT_ROLE
 
+    # If robot is assigning roles, wait for three seconds, and proceed to assign roles
     elif state == STATE_WAIT_ROLE:
         if time.time() - start_time > role_assignment_delay and is_role_assigner():
             print("Acting as assigner")
@@ -208,7 +220,8 @@ while True:
                     assigned_ids[rid] = role_to_assign
                     print("Assigning role", role_to_assign, "to", rid)
                     client.publish(MQTT_ROLE_TOPIC, f"{rid}:{role_to_assign}")
-
+                    
+        # If robot is not assigner, and has received a role, follow that behavior
         if role is not None:
             print("Role assigned:", role)
             state = STATE_ROLE_BEHAVIOR
