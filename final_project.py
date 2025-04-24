@@ -28,7 +28,7 @@ role = None
 start_time = time.time()
 role_assignment_delay = 3.0  # seconds
 
-# Base-specific flags and setup
+# Communication setup between robots
 top_ready = False
 top_button_pressed = False
 base_ready = False
@@ -46,9 +46,13 @@ BASE_STATE_DONE = "BASE_DONE"
 
 base_state = BASE_STATE_WAIT_FOR_BUTTON
 
-#TO DO: Define the following states:
-# Middle-specific flags and setup
 # Middle robot behavior states
+MIDDLE_STATE_IDLE = "MIDDLE_IDLE"
+MIDDLE_STATE_PREPARE_FOR_RESTACK = "MIDDLE_PREPARE_FOR_RESTACK"
+
+middle_state = MIDDLE_STATE_IDLE
+
+
 # Top-specific flags and setup
 # Top robot behavior states
 
@@ -175,7 +179,19 @@ def handle_base_behavior():
 
 # Behavior Placeholders for other roles
 def handle_middle_behavior():
-    print("MIDDLE behavior running...")
+    global middle_state
+
+    if middle_state == MIDDLE_STATE_IDLE:
+        print("[MIDDLE] Waiting... (idle)")
+        if base_ready and top_ready:
+            middle_state = MIDDLE_STATE_PREPARE_FOR_RESTACK
+
+    elif middle_state == MIDDLE_STATE_PREPARE_FOR_RESTACK:
+        print("[MIDDLE] Stack ready. Preparing for re-stack or shutdown.")
+        # TODO: Figure out if the middle robot would do anything
+        time.sleep(2)
+        middle_state = MIDDLE_STATE_IDLE
+
 
 def handle_top_behavior():
     print("TOP behavior running...")
