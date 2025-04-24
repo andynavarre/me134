@@ -4,10 +4,17 @@ from MQTT.mqttconnect import connect_mqtt
 from XRPLib.differential_drive import DifferentialDrive
 from XRPLib.board import Board
 from .rangefinder import Rangefinder
+from Husky.huskylensPythonLibrary import HuskyLensLibrary
 
+#Initialize sensors and drivetrain
 drivetrain = DifferentialDrive.get_default_differential_drive()
 board = Board.get_default_board()
 rangefinder = Rangefinder.get_default_rangefinder()
+
+# Camera Setup
+husky = HuskyLensLibrary("I2C")
+while not husky.tag_recognition_mode():
+    husky.tag_recognition_mode()
 
 # Constants and State
 ROLES = ["BASE", "MIDDLE", "TOP"]
@@ -21,6 +28,7 @@ MQTT_COMMAND_TOPIC = "swarm/commands"
 MQTT_STATUS_TOPIC = "swarm/status"
 MQTT_BROADCAST_TOPIC = "swarm/broadcast"
 
+# Constant and setup for role communication
 robot_id = str(time.ticks_ms() % 10000)  # Unique per boot
 known_ids = set()
 assigned_ids = {}
@@ -30,12 +38,12 @@ role = None
 start_time = time.time()
 role_assignment_delay = 3.0  # seconds
 
-# Communication setup between robots
+# Constant for checks between robots
 top_ready = False
 top_button_pressed = False
 base_ready = False
 
-#Sensor Readings
+# Sensor Readings
 distance_buffer = []
 
 # Base robot behavior states
@@ -102,9 +110,10 @@ def handle_mqtt_message(topic, msg):
         elif msg == "TOP_READY" or msg == "TOP_WAITING_AT_TAG":
             top_ready = True
 
-# Placeholder: Simulated AprilTag detection
+# Just check if the robot has detected an April tag
 def detect_april_tag():
-    return random.random() < 0.1 
+    tag_data = husky.command_request_blocks()
+    return len(tag_data) > 0
 
 def get_filtered_distance():
     new_distance = Rangefinder.distance()
