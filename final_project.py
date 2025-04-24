@@ -156,7 +156,7 @@ def handle_base_behavior():
 
     elif base_state == BASE_STATE_WALL_FOLLOWING:
         print("[BASE] Backing up from the wall...")
-        drivetrain.set_speed(-40, -40)
+        drivetrain.set_speed(-20, -20)
         time.sleep(1.0)
         drivetrain.set_speed(0, 0)
 
