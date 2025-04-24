@@ -117,10 +117,10 @@ def detect_april_tag():
 
 def get_filtered_distance():
     new_distance = Rangefinder.distance()
-    distance_buffer.append(new_value)
+    distance_buffer.append(new_distance)
     if len(distance_buffer) > 5:
         distance_buffer.pop(0)
-    return sorted(distance_buffer[len(distance_buffer)//2]
+    return sorted(distance_buffer)[len(distance_buffer) // 2]
 
 # Behavior for BASE role
 def handle_base_behavior():
