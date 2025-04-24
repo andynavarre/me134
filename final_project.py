@@ -169,7 +169,6 @@ def handle_base_behavior():
         has_turned_corner = False
         Kp = 1.2
         target_distance = 10  # cm
-        distance_buffer = []
 
         while True:
             distance = get_filtered_distance()
