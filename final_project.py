@@ -187,7 +187,7 @@ def handle_base_behavior():
             if detect_april_tag():
                 print("[BASE] AprilTag detected – stopping.")
                 drivetrain.set_speed(0, 0)
-                base_state = BASE_STATE_APRILTAG2
+                base_state = BASE_STATE_ALIGN_APRILTAG2
                 break
 
             # Detect left wall loss to find corner
