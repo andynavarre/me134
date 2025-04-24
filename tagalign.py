@@ -7,9 +7,9 @@ husky = HuskyLensLibrary("I2C")
 drivetrain = DifferentialDrive.get_default_differential_drive()
 
 # Constants
-TAG_CENTER_TOLERANCE = 15         # +/- pixels from center (x=160)
-DESIRED_TAG_WIDTH = 45            # Width where tag is "close enough"
-TOO_CLOSE_TAG_WIDTH = 65          # Width threshold where robot is too close
+TAG_CENTER_TOLERANCE = 2         # +/- pixels from center (x=160)
+DESIRED_TAG_WIDTH = 55            # Width where tag is "close enough"
+TOO_CLOSE_TAG_WIDTH = 60          # Width threshold where robot is too close
 AVERAGE_WINDOW_SIZE = 5           # For median filtering
 
 # Alignment states
@@ -50,6 +50,7 @@ while True:
 
     if len(tag_data) > 0:
         tag = tag_data[0]  # Use the first tag detected
+        print("[DEBUG] Raw tag data:", tag)
         x, width = update_filtered_measurements(tag)
 
         print(f"[ALIGN] State: {alignment_state} | X: {x}, Width: {width}")
@@ -60,19 +61,16 @@ while True:
                 drivetrain.set_speed(0, 0)
                 alignment_state = ALIGN_APPROACH
             else:
-                turn_speed = 20 if error > 0 else -20
+                turn_speed = 10 if error > 0 else -10
                 drivetrain.set_speed(turn_speed, -turn_speed)
 
         elif alignment_state == ALIGN_APPROACH:
             if width < DESIRED_TAG_WIDTH:
-                drivetrain.set_speed(40, 40)  # Move forward
+                drivetrain.set_speed(15, 15)  # Move forward
 
             elif width > TOO_CLOSE_TAG_WIDTH:
                 print("[ALIGN] Too close to tag. Backing up...")
-                drivetrain.set_speed(-40, -40)
-                time.sleep(0.5)
-                drivetrain.set_speed(0, 0)
-                # Stay in this state and re-evaluate
+                drivetrain.set_speed(-15, -15)
             else:
                 drivetrain.set_speed(0, 0)
                 alignment_state = ALIGN_FINE
@@ -83,7 +81,7 @@ while True:
                 drivetrain.set_speed(0, 0)
                 alignment_state = ALIGN_DONE
             else:
-                turn_speed = 10 if error > 0 else -10
+                turn_speed = 5 if error > 0 else -5
                 drivetrain.set_speed(turn_speed, -turn_speed)
 
         elif alignment_state == ALIGN_DONE:
@@ -97,5 +95,3 @@ while True:
         width_buffer.clear()
         drivetrain.set_speed(0, 0)
         # Remain in current state and reattempt when tag reappears
-
-    time.sleep(0.1)
