@@ -215,7 +215,7 @@ def handle_base_behavior():
         print("[BASE] Aligning with AprilTag...")
         # TODO: Implement AprilTag centering logic
         time.sleep(2)
-        base_state = BASE_STATE_WAIT_FOR_PICKUP:
+        base_state = BASE_STATE_WAIT_FOR_PICKUP
         client.publish(MQTT_COMMAND_TOPIC, "BASE_WAITING_AT_TAG")
         
     elif base_state == BASE_STATE_WAIT_FOR_PICKUP:
