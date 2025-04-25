@@ -117,12 +117,18 @@ def detect_april_tag():
 
 # AprilTag Alignment Behavior
 def align_to_apriltag():
+    def align_to_apriltag():
     global x_buffer, width_buffer
 
-    TAG_CENTER_TOLERANCE = 2
-    DESIRED_TAG_WIDTH = 55
-    TOO_CLOSE_TAG_WIDTH = 60
+    TAG_CENTER_TOLERANCE = 20
+    DESIRED_TAG_WIDTH = 118
+    TOO_CLOSE_TAG_WIDTH = 125
     AVERAGE_WINDOW_SIZE = 5
+    TILT_RATIO_THRESHOLD = 1.1
+    MAX_RATIO_HISTORY = 3
+
+    STALL_DETECTION_WINDOW = 0.5
+    STALL_X_THRESHOLD = 5
 
     ALIGN_YAW = "YAW_ALIGNMENT"
     ALIGN_APPROACH = "APPROACH"
@@ -132,16 +138,25 @@ def align_to_apriltag():
     alignment_state = ALIGN_YAW
     x_buffer = []
     width_buffer = []
+    ratio_history = []
+    turn_direction = 1
+
+    last_seen_time = time.time()
+    x = 160
+    last_x_position = 160
+    stall_start_time = None
 
     print("[ALIGN] Starting AprilTag alignment...")
 
     while True:
         tag_data = husky.command_request_blocks()
 
+        tag = None
         if len(tag_data) > 0:
             tag = tag_data[0]
-            print("[DEBUG] Raw tag data:", tag)
 
+        if tag is not None:
+            last_seen_time = time.time()
             x_center = tag[0]
             width = tag[2]
 
@@ -155,48 +170,127 @@ def align_to_apriltag():
             x_median = sorted(x_buffer)[len(x_buffer) // 2]
             width_median = sorted(width_buffer)[len(width_buffer) // 2]
 
-            print(f"[ALIGN] State: {alignment_state} | x_center = {x_median}, width = {width_median}")
+            x = x_median
 
-            if alignment_state == ALIGN_YAW:
-                error = x_median - 160
+        # --------- STATE MACHINE -----------
+
+        if alignment_state == ALIGN_YAW:
+            if tag:
+                error = x - 160
                 if abs(error) <= TAG_CENTER_TOLERANCE:
                     drivetrain.set_speed(0, 0)
                     alignment_state = ALIGN_APPROACH
                 else:
-                    turn_speed = 10 if error > 0 else -10
+                    turn_speed = 15 if error > 0 else -15
                     drivetrain.set_speed(turn_speed, -turn_speed)
+                    time.sleep(0.1)
+            else:
+                drivetrain.set_speed(30, -30)
+                time.sleep(0.1)
+                drivetrain.set_speed(0, 0)
 
-            elif alignment_state == ALIGN_APPROACH:
+        elif alignment_state == ALIGN_APPROACH:
+            if tag:
                 if width_median < DESIRED_TAG_WIDTH:
-                    drivetrain.set_speed(15, 15)
+                    drift_error = x - 160
+
+                    if abs(drift_error) > TAG_CENTER_TOLERANCE:
+                        if drift_error > 0:
+                            print("[ALIGN] Correcting drift: steering left.")
+                            drivetrain.set_speed(30, 15)
+                        else:
+                            print("[ALIGN] Correcting drift: steering right.")
+                            drivetrain.set_speed(15, 30)
+
+                        if stall_start_time is None:
+                            stall_start_time = time.time()
+                            last_x_position = x
+                        elif time.time() - stall_start_time > STALL_DETECTION_WINDOW:
+                            if abs(x - last_x_position) < STALL_X_THRESHOLD:
+                                print("[STALL] No x movement while steering. Boosting forward!")
+                                drivetrain.set_speed(40, 40)
+                                time.sleep(0.5)
+                                drivetrain.set_speed(0, 0)
+                                stall_start_time = None
+                            else:
+                                stall_start_time = time.time()
+                                last_x_position = x
+
+                    else:
+                        # Centered, check tilt
+                        width_now = tag[2]
+                        height_now = tag[3]
+                        if height_now == 0:
+                            ratio_now = 1.0
+                        else:
+                            ratio_now = width_now / height_now
+                        print(f"[DEBUG] Tilt ratio = {ratio_now:.2f}")
+
+                        if ratio_now < TILT_RATIO_THRESHOLD:
+                            print("[ALIGN] Tag is tilted — rotating to correct...")
+                            drivetrain.set_speed(15 * turn_direction, -15 * turn_direction)
+                            time.sleep(0.2)
+                            drivetrain.set_speed(0, 0)
+                        else:
+                            # Good, centered and not tilted
+                            print("[ALIGN] Centered and straight. Moving forward.")
+                            drivetrain.set_speed(20, 20)
+                            stall_start_time = None
+
                 elif width_median > TOO_CLOSE_TAG_WIDTH:
                     print("[ALIGN] Too close to tag. Backing up...")
-                    drivetrain.set_speed(-15, -15)
+                    drift_error = x - 160
+                    if abs(drift_error) <= TAG_CENTER_TOLERANCE:
+                        drivetrain.set_speed(-20, -20)
+                    elif drift_error > 0:
+                        drivetrain.set_speed(-30, -15)
+                    else:
+                        drivetrain.set_speed(-15, -30)
+
+                    drivetrain.set_speed(0, 0)
+
                 else:
                     drivetrain.set_speed(0, 0)
                     alignment_state = ALIGN_FINE
 
-            elif alignment_state == ALIGN_FINE:
-                error = x_median - 160
+            else:
+                if x < 160:
+                    drivetrain.set_speed(15, -15)
+                else:
+                    drivetrain.set_speed(-15, 15)
+
+                if time.time() - last_seen_time > 2:
+                    print("[ALIGN] Tag lost too long. Cancelling alignment.")
+                    drivetrain.set_speed(0, 0)
+                    break
+
+        elif alignment_state == ALIGN_FINE:
+            if tag:
+                error = x - 160
                 if abs(error) <= TAG_CENTER_TOLERANCE:
                     drivetrain.set_speed(0, 0)
                     alignment_state = ALIGN_DONE
                 else:
-                    turn_speed = 5 if error > 0 else -5
+                    turn_speed = 20 if error > 0 else -20
                     drivetrain.set_speed(turn_speed, -turn_speed)
+            else:
+                if x < 160:
+                    drivetrain.set_speed(15, -15)
+                else:
+                    drivetrain.set_speed(-15, 15)
 
-            elif alignment_state == ALIGN_DONE:
-                print("[ALIGN] Alignment complete.")
-                drivetrain.set_speed(0, 0)
-                break
+                if time.time() - last_seen_time > 3:
+                    print("[ALIGN] Tag lost too long. Cancelling alignment.")
+                    drivetrain.set_speed(0, 0)
+                    break
 
-        else:
-            print("[ALIGN] No tag detected.")
-            x_buffer.clear()
-            width_buffer.clear()
+        elif alignment_state == ALIGN_DONE:
+            print("[ALIGN] Alignment complete!")
             drivetrain.set_speed(0, 0)
+            break
 
         time.sleep(0.1)
+
 
 
 def get_filtered_distance():
