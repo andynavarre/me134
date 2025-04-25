@@ -115,6 +115,90 @@ def detect_april_tag():
     tag_data = husky.command_request_blocks()
     return len(tag_data) > 0
 
+# AprilTag Alignment Behavior
+def align_to_apriltag():
+    global x_buffer, width_buffer
+
+    TAG_CENTER_TOLERANCE = 2
+    DESIRED_TAG_WIDTH = 55
+    TOO_CLOSE_TAG_WIDTH = 60
+    AVERAGE_WINDOW_SIZE = 5
+
+    ALIGN_YAW = "YAW_ALIGNMENT"
+    ALIGN_APPROACH = "APPROACH"
+    ALIGN_FINE = "FINAL_CORRECTION"
+    ALIGN_DONE = "ALIGNED"
+
+    alignment_state = ALIGN_YAW
+    x_buffer = []
+    width_buffer = []
+
+    print("[ALIGN] Starting AprilTag alignment...")
+
+    while True:
+        tag_data = husky.command_request_blocks()
+
+        if len(tag_data) > 0:
+            tag = tag_data[0]
+            print("[DEBUG] Raw tag data:", tag)
+
+            x_center = tag[0]
+            width = tag[2]
+
+            x_buffer.append(x_center)
+            width_buffer.append(width)
+
+            if len(x_buffer) > AVERAGE_WINDOW_SIZE:
+                x_buffer.pop(0)
+                width_buffer.pop(0)
+
+            x_median = sorted(x_buffer)[len(x_buffer) // 2]
+            width_median = sorted(width_buffer)[len(width_buffer) // 2]
+
+            print(f"[ALIGN] State: {alignment_state} | x_center = {x_median}, width = {width_median}")
+
+            if alignment_state == ALIGN_YAW:
+                error = x_median - 160
+                if abs(error) <= TAG_CENTER_TOLERANCE:
+                    drivetrain.set_speed(0, 0)
+                    alignment_state = ALIGN_APPROACH
+                else:
+                    turn_speed = 10 if error > 0 else -10
+                    drivetrain.set_speed(turn_speed, -turn_speed)
+
+            elif alignment_state == ALIGN_APPROACH:
+                if width_median < DESIRED_TAG_WIDTH:
+                    drivetrain.set_speed(15, 15)
+                elif width_median > TOO_CLOSE_TAG_WIDTH:
+                    print("[ALIGN] Too close to tag. Backing up...")
+                    drivetrain.set_speed(-15, -15)
+                else:
+                    drivetrain.set_speed(0, 0)
+                    alignment_state = ALIGN_FINE
+
+            elif alignment_state == ALIGN_FINE:
+                error = x_median - 160
+                if abs(error) <= TAG_CENTER_TOLERANCE:
+                    drivetrain.set_speed(0, 0)
+                    alignment_state = ALIGN_DONE
+                else:
+                    turn_speed = 5 if error > 0 else -5
+                    drivetrain.set_speed(turn_speed, -turn_speed)
+
+            elif alignment_state == ALIGN_DONE:
+                print("[ALIGN] Alignment complete.")
+                drivetrain.set_speed(0, 0)
+                break
+
+        else:
+            print("[ALIGN] No tag detected.")
+            x_buffer.clear()
+            width_buffer.clear()
+            drivetrain.set_speed(0, 0)
+
+        time.sleep(0.1)
+
+
 def get_filtered_distance():
     new_distance = Rangefinder.distance()
     distance_buffer.append(new_distance)
@@ -153,8 +237,7 @@ def handle_base_behavior():
 
     elif base_state == BASE_STATE_ALIGN_APRILTAG:
         print("[BASE] Aligning with AprilTag...")
-        # TODO: Implement AprilTag centering logic
-        time.sleep(2)
+        align_to_apriltag()
         base_state = BASE_STATE_READY_FOR_UNSTACK
         client.publish(MQTT_COMMAND_TOPIC, "BASE_READY")
 
@@ -213,8 +296,7 @@ def handle_base_behavior():
 
     elif base_state == BASE_STATE_ALIGN_APRILTAG2:
         print("[BASE] Aligning with AprilTag...")
-        # TODO: Implement AprilTag centering logic
-        time.sleep(2)
+        align_to_apriltag()
         base_state = BASE_STATE_WAIT_FOR_PICKUP
         client.publish(MQTT_COMMAND_TOPIC, "BASE_WAITING_AT_TAG")
         
