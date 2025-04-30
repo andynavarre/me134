@@ -116,8 +116,7 @@ def detect_april_tag():
     return len(tag_data) > 0
 
 # AprilTag Alignment Behavior
-def align_to_apriltag():
-    def align_to_apriltag():
+def align_to_wall_apriltag():
     global x_buffer, width_buffer
 
     TAG_CENTER_TOLERANCE = 20
@@ -291,8 +290,6 @@ def align_to_apriltag():
 
         time.sleep(0.1)
 
-
-
 def get_filtered_distance():
     new_distance = Rangefinder.distance()
     distance_buffer.append(new_distance)
@@ -341,56 +338,73 @@ def handle_base_behavior():
             base_state = BASE_STATE_WALL_FOLLOWING
 
     elif base_state == BASE_STATE_WALL_FOLLOWING:
-        print("[BASE] Backing up from the wall...")
+        top_ready = False
+        print("[BASE] Starting wall-following behavior...")
+
+        # Initial back-up and turn
         drivetrain.set_speed(-20, -20)
         time.sleep(1.0)
         drivetrain.set_speed(0, 0)
 
-        print("[BASE] Turning 90 degrees to the right...")
         drivetrain.turn(90)
-        time.sleep(1)
+        time.sleep(1.0)
+        drivetrain.set_speed(0, 0)
 
-        print("[BASE] Starting wall follow...")
+        # Constants for wall-following
+        TARGET_DISTANCE = 15       # cm
+        DEADBAND = 1.0             # cm range for no correction
+        KP = 1.2                   # proportional gain
+        MIN_SPEED = 10
+        MAX_SPEED = 30
+        BASE_SPEED = 15
+        WALL_LOST_THRESHOLD = 50
 
         has_turned_corner = False
-        Kp = 1.2
-        target_distance = 10  # cm
 
         while True:
             distance = get_filtered_distance()
-            print(f"[BASE] Left distance: {distance} cm")
+            print(f"[WALL FOLLOW] Distance to wall: {distance:.2f} cm")
 
-            # AprilTag check (stop condition)
+            # Check if an AprilTag is detected
             if detect_april_tag():
-                print("[BASE] AprilTag detected – stopping.")
+                print("[BASE] AprilTag detected – transitioning to ALIGN_APRILTAG2.")
                 drivetrain.set_speed(0, 0)
                 base_state = BASE_STATE_ALIGN_APRILTAG2
                 break
 
-            # Detect left wall loss to find corner
-            if not has_turned_corner and distance > 50:
-                print("[BASE] Left wall lost – 90° corner detected.")
+            # Check for corner (wall lost)
+            if not has_turned_corner and distance > WALL_LOST_THRESHOLD:
+                print("[WALL FOLLOW] Wall lost. Turning left at corner...")
+                drivetrain.set_speed(BASE_SPEED, BASE_SPEED)
+                sleep(1.5)
                 drivetrain.set_speed(0, 0)
-                time.sleep(0.5)
-                drivetrain.turn(-90)
-                time.sleep(1)
+                drivetrain.turn(90)
+                sleep(1.0)
+                drivetrain.set_speed(BASE_SPEED, BASE_SPEED)
+                sleep(1.5)
+                drivetrain.set_speed(0,0)
                 has_turned_corner = True
                 continue
 
-            # Wall following logic (P-control)
-            error = target_distance - distance
-            correction = Kp * error
+            # Wall-following using proportional control
+            error = TARGET_DISTANCE - distance
+            if abs(error) < DEADBAND:
+                correction = 0
+            else:
+                correction = -KP * error
 
-            base_speed = 60
-            left_speed = max(min(base_speed - correction, 100), 20)
-            right_speed = max(min(base_speed + correction, 100), 20)
+            left_speed = BASE_SPEED - correction
+            right_speed = BASE_SPEED + correction
+
+            left_speed = max(min(left_speed, MAX_SPEED), MIN_SPEED)
+            right_speed = max(min(right_speed, MAX_SPEED), MIN_SPEED)
 
             drivetrain.set_speed(left_speed, right_speed)
-            time.sleep(0.1)
+            sleep(0.1)
 
     elif base_state == BASE_STATE_ALIGN_APRILTAG2:
         print("[BASE] Aligning with AprilTag...")
-        align_to_apriltag()
+        align_to_wall_apriltag()
         base_state = BASE_STATE_WAIT_FOR_PICKUP
         client.publish(MQTT_COMMAND_TOPIC, "BASE_WAITING_AT_TAG")
         
