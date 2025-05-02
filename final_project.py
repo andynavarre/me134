@@ -10,6 +10,7 @@ from Husky.huskylensPythonLibrary import HuskyLensLibrary
 drivetrain = DifferentialDrive.get_default_differential_drive()
 board = Board.get_default_board()
 rangefinder = Rangefinder.get_default_rangefinder()
+servo = Servo.get_default_servo(index=1)
 
 # Camera Setup
 husky = HuskyLensLibrary("I2C")
@@ -45,6 +46,11 @@ base_ready = False
 
 # Sensor Readings
 distance_buffer = []
+
+# Servo Stuff
+DOWN = 90
+UP = 0
+servo.set_angle(DOWN)
 
 # Base robot behavior states
 BASE_STATE_WAIT_FOR_BUTTON = "BASE_WAIT_FOR_BUTTON"
@@ -115,7 +121,7 @@ def detect_april_tag():
     tag_data = husky.command_request_blocks()
     return len(tag_data) > 0
 
-# AprilTag Alignment Behavior
+# AprilTag Alignment Behavior for an April Tag on the wall
 def align_to_wall_apriltag():
     global x_buffer, width_buffer
 
@@ -290,6 +296,83 @@ def align_to_wall_apriltag():
 
         time.sleep(0.1)
 
+# April Tag Alignment for an April Tag located on the floor
+def align_to_floor_apriltag():
+
+    # === AprilTag Alignment Constants ===
+    CAMERA_CENTER_X = 160
+    CAMERA_CENTER_Y = 120
+
+    X_TOLERANCE = 30
+    Y_TOLERANCE = 30
+
+    ALIGN_TRANSLATE = "TRANSLATE"
+    ALIGN_FINE = "FINE"
+    ALIGN_DONE = "DONE"
+
+    alignment_state = ALIGN_TRANSLATE
+
+    print("[ALIGN] Starting alignment to floor AprilTag...")
+
+    while True:
+        tag_data = husky.command_request_blocks()
+
+        if len(tag_data) > 0:
+            tag = tag_data[0]
+            x, y = tag[0], tag[1]
+            width = tag[2]
+
+            print(f"[ALIGN] State: {alignment_state} | X: {x}, Y: {y}, Width: {width}")
+
+            dx = x - CAMERA_CENTER_X
+            dy = y - CAMERA_CENTER_Y
+
+            if alignment_state == ALIGN_TRANSLATE:
+                # Translate left/right
+                if abs(dx) > X_TOLERANCE:
+                    if dx > 0:
+                        drivetrain.set_speed(15, -15)  # Turn right
+                    else:
+                        drivetrain.set_speed(-15, 15)  # Turn left
+                    continue
+
+                # Translate forward/backward
+                if abs(dy) > Y_TOLERANCE:
+                    if dy > 0:
+                        drivetrain.set_speed(-15, -15)  # Move backward
+                    else:
+                        drivetrain.set_speed(15, 15)    # Move forward
+                    continue
+
+                # If within tolerance
+                drivetrain.set_speed(0, 0)
+                alignment_state = ALIGN_FINE
+
+            elif alignment_state == ALIGN_FINE:
+                if abs(dx) <= 15 and abs(dy) <= 15:
+                    drivetrain.set_speed(0, 0)
+                    alignment_state = ALIGN_DONE
+                else:
+                    x_correction = 10 if dx > 0 else -10
+                    y_correction = 10 if dy > 0 else -10
+                    drivetrain.set_speed(y_correction + x_correction,
+                                        y_correction - x_correction)
+
+            elif alignment_state == ALIGN_DONE:
+                print("[ALIGN] Alignment complete.")
+                drivetrain.set_speed(0, 0)
+                break
+
+        else:
+            print("[ALIGN] No AprilTag detected.")
+            drivetrain.set_speed(0, 0)
+    
+        time.sleep(0.001)
+
+
+
+
+
 def get_filtered_distance():
     new_distance = Rangefinder.distance()
     distance_buffer.append(new_distance)
@@ -309,6 +392,7 @@ def handle_base_behavior():
             base_state = BASE_STATE_RANDOM_WALK
 
     elif base_state == BASE_STATE_RANDOM_WALK:
+        servo.set_angle(UP)
         top_button_pressed = False
         print("[BASE] Random walking toward table...")
 
@@ -328,7 +412,8 @@ def handle_base_behavior():
 
     elif base_state == BASE_STATE_ALIGN_APRILTAG:
         print("[BASE] Aligning with AprilTag...")
-        align_to_apriltag()
+        align_to_wall_apriltag()
+        servo.set_angle(DOWN)
         base_state = BASE_STATE_READY_FOR_UNSTACK
         client.publish(MQTT_COMMAND_TOPIC, "BASE_READY")
 
@@ -404,7 +489,7 @@ def handle_base_behavior():
 
     elif base_state == BASE_STATE_ALIGN_APRILTAG2:
         print("[BASE] Aligning with AprilTag...")
-        align_to_wall_apriltag()
+        align_to_floor_apriltag()
         base_state = BASE_STATE_WAIT_FOR_PICKUP
         client.publish(MQTT_COMMAND_TOPIC, "BASE_WAITING_AT_TAG")
         
