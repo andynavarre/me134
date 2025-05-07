@@ -5,12 +5,47 @@ from XRPLib.differential_drive import DifferentialDrive
 from XRPLib.board import Board
 from .rangefinder import Rangefinder
 from Husky.huskylensPythonLibrary import HuskyLensLibrary
+from XRPLib.reflectance import Reflectance
 
 #Initialize sensors and drivetrain
 drivetrain = DifferentialDrive.get_default_differential_drive()
 board = Board.get_default_board()
 rangefinder = Rangefinder.get_default_rangefinder()
 servo = Servo.get_default_servo(index=1)
+reflect = Reflectance.get_default_reflectance()
+
+# PID controller class
+class PIDController:
+    def __init__(self, Kp, Ki, Kd):
+        self.Kp = Kp
+        self.Ki = Ki
+        self.Kd = Kd
+        self.error_sum = 0
+        self.error_delta = 0
+        self.prev_error = 0
+        
+    def update(self, error):
+        #### TODO: implement the PID controller here ####
+        # Proportional term
+        P = self.Kp * error
+        
+        # Integral term
+        self.error_sum += error #* dt
+        I = self.Ki * self.error_sum
+        
+        # Derivative term
+        error_delta = (error - self.prev_error) #/ dt #if dt > 0 else 0
+        D = self.Kd * error_delta
+        
+        # Save the error for the next loop
+        self.prev_error = error
+        
+        # Total output effort
+        effort = P + I + D
+        return effort
+
+# Line-following setup
+line_pid = PIDController(Kp=30, Ki=1, Kd=0) # 40, 1, 1 worksish
 
 # Camera Setup
 husky = HuskyLensLibrary("I2C")
@@ -42,6 +77,7 @@ role_assignment_delay = 3.0  # seconds
 # Constant for checks between robots
 top_ready = False
 top_button_pressed = False
+top_starting = False
 base_ready = False
 
 # Sensor Readings
@@ -72,10 +108,18 @@ MIDDLE_STATE_PREPARE_FOR_RESTACK = "MIDDLE_PREPARE_FOR_RESTACK"
 
 middle_state = MIDDLE_STATE_IDLE
 
-
 # Top-specific flags and setup
 # Top robot behavior states
+TOP_STATE_WAIT_FOR_START = "TOP_STATE_WAIT_FOR_START"
+TOP_STATE_STACKING = "TOP_STATE_STACKING"
+TOP_STATE_EXIT = "TOP_STATE_EXIT"
+TOP_STATE_LINE_FOLLOWING = "TOP_STATE_LINE_FOLLOWING"
+TOP_STATE_ALIGN = "TOP_STATE_ALIGN"
+TOP_STATE_REJOIN = "TOP_STATE_REJOIN"
+TOP_STATE_UNSTACKING = "TOP_STATE_UNSTACKING"
+TOP_STATE_DONE = "TOP_STATE_DONE"
 
+top_state = TOP_STATE_WAIT_FOR_START
 
 # Check if this robot is the assigner
 def is_role_assigner():
@@ -186,11 +230,11 @@ def align_to_wall_apriltag():
                     drivetrain.set_speed(0, 0)
                     alignment_state = ALIGN_APPROACH
                 else:
-                    turn_speed = 15 if error > 0 else -15
+                    turn_speed = 30 if error > 0 else -30
                     drivetrain.set_speed(turn_speed, -turn_speed)
                     time.sleep(0.1)
             else:
-                drivetrain.set_speed(30, -30)
+                drivetrain.set_speed(60, -60)
                 time.sleep(0.1)
                 drivetrain.set_speed(0, 0)
 
@@ -202,10 +246,10 @@ def align_to_wall_apriltag():
                     if abs(drift_error) > TAG_CENTER_TOLERANCE:
                         if drift_error > 0:
                             print("[ALIGN] Correcting drift: steering left.")
-                            drivetrain.set_speed(30, 15)
+                            drivetrain.set_speed(50, 30)
                         else:
                             print("[ALIGN] Correcting drift: steering right.")
-                            drivetrain.set_speed(15, 30)
+                            drivetrain.set_speed(30, 50)
 
                         if stall_start_time is None:
                             stall_start_time = time.time()
@@ -233,24 +277,24 @@ def align_to_wall_apriltag():
 
                         if ratio_now < TILT_RATIO_THRESHOLD:
                             print("[ALIGN] Tag is tilted — rotating to correct...")
-                            drivetrain.set_speed(15 * turn_direction, -15 * turn_direction)
+                            drivetrain.set_speed(30 * turn_direction, -30 * turn_direction)
                             time.sleep(0.2)
                             drivetrain.set_speed(0, 0)
                         else:
                             # Good, centered and not tilted
                             print("[ALIGN] Centered and straight. Moving forward.")
-                            drivetrain.set_speed(20, 20)
+                            drivetrain.set_speed(50, 50)
                             stall_start_time = None
 
                 elif width_median > TOO_CLOSE_TAG_WIDTH:
                     print("[ALIGN] Too close to tag. Backing up...")
                     drift_error = x - 160
                     if abs(drift_error) <= TAG_CENTER_TOLERANCE:
-                        drivetrain.set_speed(-20, -20)
+                        drivetrain.set_speed(-50, -50)
                     elif drift_error > 0:
-                        drivetrain.set_speed(-30, -15)
+                        drivetrain.set_speed(-65, -30)
                     else:
-                        drivetrain.set_speed(-15, -30)
+                        drivetrain.set_speed(-30, -65)
 
                     drivetrain.set_speed(0, 0)
 
@@ -260,9 +304,9 @@ def align_to_wall_apriltag():
 
             else:
                 if x < 160:
-                    drivetrain.set_speed(15, -15)
+                    drivetrain.set_speed(30, -30)
                 else:
-                    drivetrain.set_speed(-15, 15)
+                    drivetrain.set_speed(-30, 30)
 
                 if time.time() - last_seen_time > 2:
                     print("[ALIGN] Tag lost too long. Cancelling alignment.")
@@ -276,13 +320,13 @@ def align_to_wall_apriltag():
                     drivetrain.set_speed(0, 0)
                     alignment_state = ALIGN_DONE
                 else:
-                    turn_speed = 20 if error > 0 else -20
+                    turn_speed = 60 if error > 0 else -60
                     drivetrain.set_speed(turn_speed, -turn_speed)
             else:
                 if x < 160:
-                    drivetrain.set_speed(15, -15)
+                    drivetrain.set_speed(50, -50)
                 else:
-                    drivetrain.set_speed(-15, 15)
+                    drivetrain.set_speed(-50, 50)
 
                 if time.time() - last_seen_time > 3:
                     print("[ALIGN] Tag lost too long. Cancelling alignment.")
@@ -331,17 +375,17 @@ def align_to_floor_apriltag():
                 # Translate left/right
                 if abs(dx) > X_TOLERANCE:
                     if dx > 0:
-                        drivetrain.set_speed(15, -15)  # Turn right
+                        drivetrain.set_speed(30, -30)  # Turn right
                     else:
-                        drivetrain.set_speed(-15, 15)  # Turn left
+                        drivetrain.set_speed(-30, 30)  # Turn left
                     continue
 
                 # Translate forward/backward
                 if abs(dy) > Y_TOLERANCE:
                     if dy > 0:
-                        drivetrain.set_speed(-15, -15)  # Move backward
+                        drivetrain.set_speed(-30, -30)  # Move backward
                     else:
-                        drivetrain.set_speed(15, 15)    # Move forward
+                        drivetrain.set_speed(30, 30)    # Move forward
                     continue
 
                 # If within tolerance
@@ -353,8 +397,8 @@ def align_to_floor_apriltag():
                     drivetrain.set_speed(0, 0)
                     alignment_state = ALIGN_DONE
                 else:
-                    x_correction = 10 if dx > 0 else -10
-                    y_correction = 10 if dy > 0 else -10
+                    x_correction = 20 if dx > 0 else -20
+                    y_correction = 20 if dy > 0 else -20
                     drivetrain.set_speed(y_correction + x_correction,
                                         y_correction - x_correction)
 
@@ -362,16 +406,11 @@ def align_to_floor_apriltag():
                 print("[ALIGN] Alignment complete.")
                 drivetrain.set_speed(0, 0)
                 break
-
         else:
             print("[ALIGN] No AprilTag detected.")
             drivetrain.set_speed(0, 0)
     
         time.sleep(0.001)
-
-
-
-
 
 def get_filtered_distance():
     new_distance = Rangefinder.distance()
@@ -399,8 +438,8 @@ def handle_base_behavior():
         base_speed = random.randint(40, 80)
         turn_bias = random.randint(-20, 20)
 
-        left_speed = max(min(base_speed + turn_bias, 100), 20)
-        right_speed = max(min(base_speed - turn_bias, 100), 20)
+        left_speed = max(min(base_speed + turn_bias, 60), 40)
+        right_speed = max(min(base_speed - turn_bias, 60), 40)
 
         drivetrain.set_speed(left_speed, right_speed)
         time.sleep(2)
@@ -427,11 +466,11 @@ def handle_base_behavior():
         print("[BASE] Starting wall-following behavior...")
 
         # Initial back-up and turn
-        drivetrain.set_speed(-20, -20)
+        drivetrain.set_speed(-30, -30)
         time.sleep(1.0)
         drivetrain.set_speed(0, 0)
 
-        drivetrain.turn(90)
+        drivetrain.turn(90, 1)
         time.sleep(1.0)
         drivetrain.set_speed(0, 0)
 
@@ -439,9 +478,9 @@ def handle_base_behavior():
         TARGET_DISTANCE = 15       # cm
         DEADBAND = 1.0             # cm range for no correction
         KP = 1.2                   # proportional gain
-        MIN_SPEED = 10
-        MAX_SPEED = 30
-        BASE_SPEED = 15
+        MIN_SPEED = 30
+        MAX_SPEED = 50
+        BASE_SPEED = 40
         WALL_LOST_THRESHOLD = 50
 
         has_turned_corner = False
@@ -490,6 +529,9 @@ def handle_base_behavior():
     elif base_state == BASE_STATE_ALIGN_APRILTAG2:
         print("[BASE] Aligning with AprilTag...")
         align_to_floor_apriltag()
+        drivetrain.straight(10, 1)
+        drivetrain.turn(90, 1)
+        drivetrain.set_speed(-30, -30)
         base_state = BASE_STATE_WAIT_FOR_PICKUP
         client.publish(MQTT_COMMAND_TOPIC, "BASE_WAITING_AT_TAG")
         
@@ -539,6 +581,72 @@ def handle_middle_behavior():
 
 def handle_top_behavior():
     print("TOP behavior running...")
+    global top_state, base_ready, top_ready, top_button_pressed, top_starting
+    if top_state == TOP_STATE_WAIT_FOR_START:
+        if not top_starting:
+            while not board.is_button_pressed():
+                time.sleep(0) # unsure how to just make this run until button is pressed, while also still going through main loop
+                
+            top_starting = True
+            #client.publish(MQTT_COMMAND_TOPIC, "TOP_BUTTON_PRESSED") GROUND BOT DOESNT CARE YET
+        elif top_starting:
+            # maybe move back and forth briefly? indicates it's ready to be stacked
+            top_state = TOP_STATE_STACKING
+            top_starting = False
+
+    elif top_state == TOP_STATE_STACKING: 
+        """Process is manual for now, just need to press button when done stacking."""
+        if not top_ready:
+            while not board.is_button_pressed():
+                time.sleep(0) # unsure how to just make this run until button is pressed, while also still going through main loop
+                
+            top_ready = True
+            client.publish(MQTT_COMMAND_TOPIC, "TOP_BUTTON_PRESSED") # Tell base bot that stacking is complete
+        elif top_ready:
+            if base_ready: # work out the order that commands should be received!!!
+                top_state = TOP_STATE_EXIT
+                top_ready = False
+    
+    elif top_state == TOP_STATE_EXIT:
+        # Need to test exactly what should be put here
+        # For now we will assume that the robot will drive at a certain speed for 1-2 seconds and then switch states
+        top_state = TOP_STATE_LINE_FOLLOWING
+
+    elif top_state == TOP_STATE_LINE_FOLLOWING:
+        error = reflect.get_left() - reflect.get_right() # initiate reflectance above
+        correction = line_pid.update(error) # add PID class and initiate above
+        speed_left = 20 - correction
+        speed_right = 20 + correction
+        drivetrain.set_speed(speed_left,speed_right)
+        if detect_april_tag():
+            drivetrain.set_speed(0,0)
+            top_state = TOP_STATE_ALIGN
+        #time.sleep(0.05) Already a 0.1 delay in main loop
+    
+    elif top_state == TOP_STATE_ALIGN:
+        print("[TOP] Aligning with AprilTag...")
+        align_to_floor_apriltag()
+        top_state = TOP_STATE_REJOIN
+
+    elif top_state == TOP_STATE_REJOIN:
+        # if base_ready
+        # Need to test exactly what should be put here
+        # For now we will assume that the robot will drive at a certain speed for 1-2 seconds and then switch states
+        top_state = TOP_STATE_UNSTACKING
+
+    elif top_state == TOP_STATE_UNSTACKING:
+        """Process is manual for now, just need to press button when done unstacking."""
+        if not top_ready:
+            while not board.is_button_pressed():
+                time.sleep(0) # unsure how to just make this run until button is pressed, while also still going through main loop
+                
+            top_ready = True
+            client.publish(MQTT_COMMAND_TOPIC, "TOP_BUTTON_PRESSED") # Tell base bot that unstacking is complete
+            top_state = TOP_STATE_DONE
+
+    elif top_state == TOP_STATE_DONE:
+        print("[TOP] Done. Stopping motors.")
+        stop_all_motors()
 
 def stop_all_motors():
     drivetrain.set_speed(0, 0)
