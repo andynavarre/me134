@@ -1,0 +1,3 @@
+ssid = Tufts_Robot
+password = 
+mqtt_broker = 10.247.137.92
