@@ -716,8 +716,6 @@ while True:
         else:
             # This robot hasn't received its role yet, wait a bit longer
             print("Waiting for my role assignment...")
-        else:
-            print(f"Waiting for role assignment... ({len(assigned_ids)}/{len(ROLES)} assigned)")
 
 
 
