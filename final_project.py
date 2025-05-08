@@ -84,7 +84,7 @@ base_ready = False
 distance_buffer = []
 
 # Servo Stuff
-DOWN = 90
+DOWN = 80
 UP = 0
 servo.set_angle(DOWN)
 
@@ -467,20 +467,18 @@ def handle_base_behavior():
 
         # Initial back-up and turn
         drivetrain.set_speed(-30, -30)
-        time.sleep(1.0)
+        time.sleep(0.5)
         drivetrain.set_speed(0, 0)
 
-        drivetrain.turn(90, 1)
-        time.sleep(1.0)
-        drivetrain.set_speed(0, 0)
+        drivetrain.turn(-90, 1)
 
         # Constants for wall-following
-        TARGET_DISTANCE = 15       # cm
+        TARGET_DISTANCE = 10       # cm
         DEADBAND = 1.0             # cm range for no correction
-        KP = 1.2                   # proportional gain
+        KP = 1                   # proportional gain
         MIN_SPEED = 30
         MAX_SPEED = 50
-        BASE_SPEED = 40
+        BASE_SPEED = 35
         WALL_LOST_THRESHOLD = 50
 
         has_turned_corner = False
@@ -500,12 +498,10 @@ def handle_base_behavior():
             if not has_turned_corner and distance > WALL_LOST_THRESHOLD:
                 print("[WALL FOLLOW] Wall lost. Turning left at corner...")
                 drivetrain.set_speed(BASE_SPEED, BASE_SPEED)
-                sleep(1.5)
-                drivetrain.set_speed(0, 0)
-                drivetrain.turn(90)
-                sleep(1.0)
+                sleep(1.2)
+                drivetrain.turn(90, 1)
                 drivetrain.set_speed(BASE_SPEED, BASE_SPEED)
-                sleep(1.5)
+                sleep(1)
                 drivetrain.set_speed(0,0)
                 has_turned_corner = True
                 continue
@@ -528,10 +524,10 @@ def handle_base_behavior():
 
     elif base_state == BASE_STATE_ALIGN_APRILTAG2:
         print("[BASE] Aligning with AprilTag...")
-        align_to_floor_apriltag()
-        drivetrain.straight(10, 1)
-        drivetrain.turn(90, 1)
-        drivetrain.set_speed(-30, -30)
+        drivetrain.turn(-90, 1)
+        drivetrain.set_speed(-60, -60)
+        sleep(1.5)
+        drivetrain.set_speed(0, 0)
         base_state = BASE_STATE_WAIT_FOR_PICKUP
         client.publish(MQTT_COMMAND_TOPIC, "BASE_WAITING_AT_TAG")
         
