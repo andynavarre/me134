@@ -168,7 +168,7 @@ def detect_april_tag():
 # AprilTag Alignment Behavior for an April Tag on the wall
 def align_to_wall_apriltag():
     global x_buffer, width_buffer
-
+    
     TAG_CENTER_TOLERANCE = 20
     DESIRED_TAG_WIDTH = 118
     TOO_CLOSE_TAG_WIDTH = 125
@@ -336,6 +336,7 @@ def align_to_wall_apriltag():
         elif alignment_state == ALIGN_DONE:
             print("[ALIGN] Alignment complete!")
             drivetrain.set_speed(0, 0)
+            servo.set_angle(DOWN)
             break
 
         time.sleep(0.1)
