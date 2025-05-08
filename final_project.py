@@ -691,17 +691,27 @@ while True:
             print("Waiting for all 3 robots to join...", len(known_ids.union({robot_id})), "detected")
         elif time.time() - start_time > role_assignment_delay and is_role_assigner():
             print("Acting as assigner")
-            unassigned = [rid for rid in known_ids if rid not in assigned_ids]
-            for i, rid in enumerate(sorted(unassigned)):
-                if i < len(ROLES):
-                    role_to_assign = ROLES[i]
-                    assigned_ids[rid] = role_to_assign
-                    print("Assigning role", role_to_assign, "to", rid)
-                    client.publish(MQTT_ROLE_TOPIC, f"{rid}:{role_to_assign}")
+            all_detected = known_ids.union({robot_id})
+            if len(all_detected) < len(ROLES):
+                print("Not enough robots yet, waiting...")
+            else:
+                for i, rid in enumerate(sorted(all_detected)):
+                    if i < len(ROLES):
+                        role_to_assign = ROLES[i]
+                        assigned_ids[rid] = role_to_assign
+                        print("Assigning role", role_to_assign, "to", rid)
+                        client.publish(MQTT_ROLE_TOPIC, f"{rid}:{role_to_assign}")
     
-        if len(assigned_ids) == len(ROLES) and role is not None:
-            print("All roles assigned. Proceeding to role behavior.")
-            state = STATE_ROLE_BEHAVIOR
+        if len(assigned_ids) == len(ROLES):
+            if role is not None:
+                print("All roles assigned and my role is", role, "- proceeding.")
+                state = STATE_ROLE_BEHAVIOR
+            else:
+                # This robot hasn't received its role yet, wait a bit longer
+                print("Waiting for my role assignment...")
+        else:
+            print(f"Waiting for role assignment... ({len(assigned_ids)}/{len(ROLES)} assigned)")
+
 
 
     elif state == STATE_ROLE_BEHAVIOR:
