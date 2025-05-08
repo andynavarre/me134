@@ -159,6 +159,8 @@ def handle_mqtt_message(topic, msg):
             top_button_pressed = True
         elif msg == "TOP_READY" or msg == "TOP_WAITING_AT_TAG":
             top_ready = True
+        elif msg == "BASE_READY" or msg == "BASE_WAITING_AT_TAG":
+            base_ready = True
 
 # Just check if the robot has detected an April tag
 def detect_april_tag():
@@ -467,6 +469,7 @@ def handle_base_behavior():
         print("[BASE] Starting wall-following behavior...")
 
         # Initial back-up and turn
+        time.sleep(2)
         drivetrain.set_speed(-30, -30)
         time.sleep(0.5)
         drivetrain.set_speed(0, 0)
@@ -540,8 +543,8 @@ def handle_base_behavior():
     elif base_state == BASE_STATE_REJOIN_STACK:
         print("[BASE] Rejoining stack...")
         # TODO: Implement check to know if it's actually stacked
-        time.sleep(2)
-        base_state = BASE_STATE_FINAL_MOVES
+        if top_ready:
+            base_state = BASE_STATE_FINAL_MOVES
 
     elif base_state == BASE_STATE_FINAL_MOVES:
         print("[BASE] Final random moves...")
@@ -600,13 +603,15 @@ def handle_top_behavior():
             top_ready = True
             client.publish(MQTT_COMMAND_TOPIC, "TOP_BUTTON_PRESSED") # Tell base bot that stacking is complete
         elif top_ready:
-            if base_ready: # work out the order that commands should be received!!!
+            if base_ready: 
                 top_state = TOP_STATE_EXIT
                 top_ready = False
+                base_ready = False
     
     elif top_state == TOP_STATE_EXIT:
-        # Need to test exactly what should be put here
-        # For now we will assume that the robot will drive at a certain speed for 1-2 seconds and then switch states
+        drivetrain.set_speed(30,30)
+        time.sleep(0.5)
+        client.publish(MQTT_COMMAND_TOPIC, "TOP_READY") # Tell base bot that it can start wall following
         top_state = TOP_STATE_LINE_FOLLOWING
 
     elif top_state == TOP_STATE_LINE_FOLLOWING:
@@ -622,14 +627,20 @@ def handle_top_behavior():
     
     elif top_state == TOP_STATE_ALIGN:
         print("[TOP] Aligning with AprilTag...")
-        align_to_floor_apriltag()
+        drivetrain.set_speed(0,-30)
+        time.sleep(0.6)
+        drivetrain.set_speed(0,0)
         top_state = TOP_STATE_REJOIN
+        client.publish(MQTT_COMMAND_TOPIC, "TOP_WAITING_AT_TAG") # Tell base bot that it can start wall following
 
     elif top_state == TOP_STATE_REJOIN:
-        # if base_ready
-        # Need to test exactly what should be put here
-        # For now we will assume that the robot will drive at a certain speed for 1-2 seconds and then switch states
-        top_state = TOP_STATE_UNSTACKING
+        if base_ready:
+            drivetrain.set_speed(30,30)
+            time.sleep(1.3)
+            drivetrain.set_speed(0,0)
+            base_ready = False
+            client.publish(MQTT_COMMAND_TOPIC, "TOP_READY") # Tell base bot that it restacked
+            top_state = TOP_STATE_UNSTACKING
 
     elif top_state == TOP_STATE_UNSTACKING:
         """Process is manual for now, just need to press button when done unstacking."""
@@ -704,4 +715,4 @@ while True:
     elif state == STATE_STOPPED:
         stop_all_motors()
 
-    time.sleep(0.1)
+    time.sleep(0.05)
