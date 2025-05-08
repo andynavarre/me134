@@ -66,7 +66,7 @@ MQTT_STATUS_TOPIC = "swarm/status"
 MQTT_BROADCAST_TOPIC = "swarm/broadcast"
 
 # Constant and setup for role communication
-robot_id = str(time.ticks_ms() % 10000)  # Unique per boot
+robot_id = str(1) # str(time.ticks_ms() % 10000)  Unique per boot
 known_ids = set()
 assigned_ids = {}
 state = STATE_INIT
@@ -125,7 +125,12 @@ top_state = TOP_STATE_WAIT_FOR_START
 # Check if this robot is the assigner
 def is_role_assigner():
     all_ids = list(known_ids.union({robot_id}))
-    return robot_id == min(all_ids)
+    if robot_id == min(all_ids):
+        print("Role Assigner")
+        return True
+    else:
+        print("Not role assigner")
+        return False
 
 # MQTT Callback
 def handle_mqtt_message(topic, msg):
@@ -150,6 +155,7 @@ def handle_mqtt_message(topic, msg):
                 if role is None:
                     role = assigned_role
                     print("This robot", robot_id, "assigned:", role)
+                    assigned_ids = {1, 2, 3}
                     client.publish(MQTT_STATUS_TOPIC, f"{role} READY")
                 elif role != assigned_role:
                     print("Role conflict: already", role, "ignoring", assigned_role)
@@ -688,6 +694,7 @@ while True:
 
     # If robot is assigning roles, wait for three seconds, and proceed to assign roles
     elif state == STATE_WAIT_ROLE:
+
         if len(known_ids.union({robot_id})) < len(ROLES):
             print("Waiting for all 3 robots to join...", len(known_ids.union({robot_id})), "detected")
         elif time.time() - start_time > role_assignment_delay and is_role_assigner():
@@ -703,13 +710,12 @@ while True:
                         print("Assigning role", role_to_assign, "to", rid)
                         client.publish(MQTT_ROLE_TOPIC, f"{rid}:{role_to_assign}")
     
-        if len(assigned_ids) == len(ROLES):
-            if role is not None:
-                print("All roles assigned and my role is", role, "- proceeding.")
-                state = STATE_ROLE_BEHAVIOR
-            else:
-                # This robot hasn't received its role yet, wait a bit longer
-                print("Waiting for my role assignment...")
+        if role is not None:
+            print("All roles assigned and my role is", role, "- proceeding.")
+            state = STATE_ROLE_BEHAVIOR
+        else:
+            # This robot hasn't received its role yet, wait a bit longer
+            print("Waiting for my role assignment...")
         else:
             print(f"Waiting for role assignment... ({len(assigned_ids)}/{len(ROLES)} assigned)")
 
