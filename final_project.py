@@ -3,9 +3,10 @@ import random
 from MQTT.mqttconnect import connect_mqtt
 from XRPLib.differential_drive import DifferentialDrive
 from XRPLib.board import Board
-from .rangefinder import Rangefinder
+from XRPLib.rangefinder import Rangefinder
 from Husky.huskylensPythonLibrary import HuskyLensLibrary
 from XRPLib.reflectance import Reflectance
+from XRPLib.servo import Servo
 
 #Initialize sensors and drivetrain
 drivetrain = DifferentialDrive.get_default_differential_drive()
